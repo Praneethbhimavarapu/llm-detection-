@@ -1,428 +1,540 @@
 #!/usr/bin/env python3
 """
-Main LLM Memorization Detection System
-Multi-modal detection supporting text, images, and documents
+LLM-Integrated Memorization Detection System
+Supports local LLMs via multiple interfaces (Ollama, LM Studio, Hugging Face, etc.)
 """
 
-import os
+import requests
 import json
-import hashlib
-import re
-import math
-from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict, Counter
+import time
+from typing import Dict, List, Optional, Union
+from dataclasses import dataclass
 import logging
-import sys
+from pathlib import Path
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Import the base detection system
+from enhanced_memorization_detector import (
+    EnhancedLLMMemorizationSystem, 
+    MemorizationResult,
+    logger
+)
 
-try:
-    from .content_extractor import ContentExtractor
-    from .similarity_algorithms import TextProcessor, SimilarityCalculator
-    from .utils import MemorizationResult, safe_import
-except ImportError:
-    # Handle direct script execution
-    from content_extractor import ContentExtractor
-    from similarity_algorithms import TextProcessor, SimilarityCalculator
-    from utils import MemorizationResult, safe_import
+@dataclass
+class LLMResponse:
+    """Store LLM response data"""
+    prompt: str
+    response: str
+    response_time: float
+    model_name: str
+    tokens_used: Optional[int] = None
+    metadata: Optional[Dict] = None
 
+class LocalLLMInterface:
+    """Base class for local LLM interfaces"""
+    
+    def __init__(self, model_name: str, base_url: str):
+        self.model_name = model_name
+        self.base_url = base_url
+        self.session = requests.Session()
+    
+    def generate(self, prompt: str, **kwargs) -> LLMResponse:
+        """Generate response from LLM"""
+        raise NotImplementedError("Subclasses must implement generate method")
+    
+    def test_connection(self) -> bool:
+        """Test if LLM is accessible"""
+        raise NotImplementedError("Subclasses must implement test_connection method")
 
-class MemorizationDetector:
-    """Core memorization detection engine"""
+class OllamaInterface(LocalLLMInterface):
+    """Interface for Ollama local LLM"""
     
-    def __init__(self, threshold: float = 0.85):
-        self.threshold = threshold
-        self.training_data = {
-            'text': [],
-            'image': [],
-            'document': []
-        }
-        self.content_hashes = {
-            'text': set(),
-            'image': set(),
-            'document': set()
-        }
-        self.processor = TextProcessor()
-        self.similarity_calc = SimilarityCalculator()
+    def __init__(self, model_name: str = "llama3.1", base_url: str = "http://localhost:11434"):
+        super().__init__(model_name, base_url)
     
-    def add_training_content(self, content_data: Dict[str, Any], source: str = None):
-        """Add content to training dataset"""
-        content = content_data.get('content', '')
-        content_type = content_data.get('content_type', 'text')
-        
-        if not content:
-            return
-        
-        content_hash = hashlib.sha256(str(content).encode('utf-8')).hexdigest()
-        
-        if content_hash in self.content_hashes.get(content_type, set()):
-            return
-        
-        training_item = {
-            'content': content,
-            'hash': content_hash,
-            'source': source,
-            'metadata': content_data.get('metadata', {})
-        }
-        
-        # Add type-specific processing
-        if content_type == 'text':
-            training_item['cleaned'] = self.processor.clean_text(content)
-            training_item['words'] = set(training_item['cleaned'].split())
-            training_item['ngrams'] = set(self.processor.extract_ngrams(training_item['cleaned'], 3))
-        elif content_type == 'image':
-            training_item['visual_hash'] = content_data.get('visual_hash', content_hash)
-            training_item['file_hash'] = content_data.get('file_hash', content_hash)
-        
-        self.training_data[content_type].append(training_item)
-        self.content_hashes[content_type].add(content_hash)
-        
-        logger.debug(f"Added {content_type} content from: {source}")
-    
-    def detect_memorization(self, content_data: Dict[str, Any]) -> MemorizationResult:
-        """Detect memorization in content"""
-        content = content_data.get('content', '')
-        content_type = content_data.get('content_type', 'text')
-        
-        if not content:
-            return MemorizationResult("", 0.0, False, 0.0, detection_method="empty_content")
-        
-        content_hash = hashlib.sha256(str(content).encode('utf-8')).hexdigest()
-        
-        # Check exact matches first
-        if content_hash in self.content_hashes.get(content_type, set()):
-            matched_item = next(
-                item for item in self.training_data[content_type] 
-                if item['hash'] == content_hash
-            )
-            return MemorizationResult(
-                content_hash=content_hash,
-                similarity_score=1.0,
-                is_memorized=True,
-                confidence=1.0,
-                matched_content=str(matched_item['content'])[:200] + "...",
-                source_file=matched_item['source'],
-                detection_method="exact_hash_match"
-            )
-        
-        # Type-specific similarity detection
-        if content_type == 'text':
-            return self._detect_text_similarity(content, content_hash)
-        elif content_type == 'image':
-            return self._detect_image_similarity(content_data, content_hash)
-        else:
-            return self._detect_document_similarity(content, content_hash, content_type)
-    
-    def _detect_text_similarity(self, content: str, content_hash: str) -> MemorizationResult:
-        """Detect text similarity using multiple algorithms"""
-        cleaned_content = self.processor.clean_text(content)
-        content_words = set(cleaned_content.split())
-        content_ngrams = set(self.processor.extract_ngrams(cleaned_content, 3))
-        
-        best_similarity = 0.0
-        best_match = None
-        best_method = "no_match"
-        
-        for item in self.training_data['text']:
-            # Multiple similarity measures
-            similarities = {}
-            
-            # Jaccard similarity on words
-            similarities['jaccard_words'] = self.similarity_calc.jaccard_similarity(
-                content_words, item['words']
-            )
-            
-            # N-gram similarity
-            similarities['ngram'] = self.similarity_calc.jaccard_similarity(
-                content_ngrams, item.get('ngrams', set())
-            )
-            
-            # Cosine similarity (if available)
-            try:
-                similarities['cosine'] = self.similarity_calc.cosine_similarity(
-                    cleaned_content, item['cleaned']
-                )
-            except:
-                similarities['cosine'] = 0.0
-            
-            # Combined score with weights
-            combined_similarity = (
-                similarities['jaccard_words'] * 0.4 +
-                similarities['ngram'] * 0.4 +
-                similarities['cosine'] * 0.2
-            )
-            
-            if combined_similarity > best_similarity:
-                best_similarity = combined_similarity
-                best_match = item
-                best_method = "combined_similarity"
-        
-        is_memorized = best_similarity > self.threshold
-        
-        return MemorizationResult(
-            content_hash=content_hash,
-            similarity_score=best_similarity,
-            is_memorized=is_memorized,
-            confidence=best_similarity if is_memorized else (1.0 - best_similarity),
-            matched_content=best_match['content'][:200] + "..." if best_match else None,
-            source_file=best_match['source'] if best_match else None,
-            detection_method=best_method
-        )
-    
-    def _detect_image_similarity(self, content_data: Dict[str, Any], content_hash: str) -> MemorizationResult:
-        """Detect image similarity"""
-        visual_hash = content_data.get('visual_hash', content_hash)
-        file_hash = content_data.get('file_hash', content_hash)
-        
-        # Check visual similarity
-        for item in self.training_data['image']:
-            if item.get('visual_hash') == visual_hash:
-                return MemorizationResult(
-                    content_hash=content_hash,
-                    similarity_score=1.0,
-                    is_memorized=True,
-                    confidence=1.0,
-                    matched_content=f"Visual match: {item['source']}",
-                    source_file=item['source'],
-                    detection_method="visual_similarity"
-                )
-            
-            if item.get('file_hash') == file_hash:
-                return MemorizationResult(
-                    content_hash=content_hash,
-                    similarity_score=1.0,
-                    is_memorized=True,
-                    confidence=1.0,
-                    matched_content=f"Exact file match: {item['source']}",
-                    source_file=item['source'],
-                    detection_method="file_duplicate"
-                )
-        
-        return MemorizationResult(
-            content_hash=content_hash,
-            similarity_score=0.0,
-            is_memorized=False,
-            confidence=0.8,
-            detection_method="no_image_match"
-        )
-    
-    def _detect_document_similarity(self, content: str, content_hash: str, content_type: str) -> MemorizationResult:
-        """Detect document similarity"""
-        if content.strip():
-            return self._detect_text_similarity(content, content_hash)
-        
-        return MemorizationResult(
-            content_hash=content_hash,
-            similarity_score=0.0,
-            is_memorized=False,
-            confidence=0.5,
-            detection_method="empty_document"
-        )
-
-
-class CompleteLLMMemorizationSystem:
-    """Complete system with all features"""
-    
-    def __init__(self, threshold: float = 0.85, config_path: str = None):
-        self.threshold = threshold
-        self.config = self._load_config(config_path) if config_path else {}
-        
-        self.extractor = ContentExtractor()
-        self.detector = MemorizationDetector(threshold)
-        self.system_ready = False
-        self.stats = {'processed': 0, 'memorized': 0, 'errors': 0}
-    
-    def _load_config(self, config_path: str) -> Dict:
-        """Load configuration from JSON file"""
+    def test_connection(self) -> bool:
         try:
-            with open(config_path, 'r') as f:
-                return json.load(f)
+            response = self.session.get(f"{self.base_url}/api/tags", timeout=5)
+            return response.status_code == 200
         except Exception as e:
-            logger.warning(f"Could not load config from {config_path}: {e}")
-            return {}
+            logger.error(f"Ollama connection failed: {e}")
+            return False
     
-    def load_training_directory(self, directory: str):
-        """Load all files from training directory"""
-        data_path = Path(directory)
+    def generate(self, prompt: str, **kwargs) -> LLMResponse:
+        start_time = time.time()
         
-        if not data_path.exists():
-            logger.error(f"Directory {directory} not found")
-            return
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False,
+            **kwargs
+        }
         
-        file_counts = defaultdict(int)
+        try:
+            response = self.session.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=kwargs.get('timeout', 60)
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            response_time = time.time() - start_time
+            
+            return LLMResponse(
+                prompt=prompt,
+                response=data.get('response', ''),
+                response_time=response_time,
+                model_name=self.model_name,
+                metadata={
+                    'done': data.get('done', False),
+                    'context': data.get('context', []),
+                    'total_duration': data.get('total_duration', 0),
+                    'load_duration': data.get('load_duration', 0),
+                    'prompt_eval_count': data.get('prompt_eval_count', 0),
+                    'eval_count': data.get('eval_count', 0)
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Ollama generation failed: {e}")
+            return LLMResponse(
+                prompt=prompt,
+                response="",
+                response_time=time.time() - start_time,
+                model_name=self.model_name,
+                metadata={'error': str(e)}
+            )
+
+class LMStudioInterface(LocalLLMInterface):
+    """Interface for LM Studio local LLM"""
+    
+    def __init__(self, model_name: str = "local-model", base_url: str = "http://localhost:1234/v1"):
+        super().__init__(model_name, base_url)
+    
+    def test_connection(self) -> bool:
+        try:
+            response = self.session.get(f"{self.base_url}/models", timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"LM Studio connection failed: {e}")
+            return False
+    
+    def generate(self, prompt: str, **kwargs) -> LLMResponse:
+        start_time = time.time()
         
-        for file_path in data_path.rglob('*'):
-            if file_path.is_file():
-                try:
-                    content_data = self.extractor.extract_content(str(file_path))
-                    content_type = content_data.get('content_type', 'unknown')
-                    
-                    if content_type != 'unsupported':
-                        self.detector.add_training_content(content_data, str(file_path))
-                        file_counts[content_type] += 1
-                    else:
-                        file_counts['unsupported'] += 1
+        payload = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": kwargs.get('temperature', 0.7),
+            "max_tokens": kwargs.get('max_tokens', 500),
+            "stream": False
+        }
+        
+        try:
+            response = self.session.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=kwargs.get('timeout', 60)
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            response_time = time.time() - start_time
+            
+            message_content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            
+            return LLMResponse(
+                prompt=prompt,
+                response=message_content,
+                response_time=response_time,
+                model_name=self.model_name,
+                tokens_used=data.get('usage', {}).get('total_tokens'),
+                metadata={
+                    'usage': data.get('usage', {}),
+                    'finish_reason': data.get('choices', [{}])[0].get('finish_reason')
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"LM Studio generation failed: {e}")
+            return LLMResponse(
+                prompt=prompt,
+                response="",
+                response_time=time.time() - start_time,
+                model_name=self.model_name,
+                metadata={'error': str(e)}
+            )
+
+class HuggingFaceInterface(LocalLLMInterface):
+    """Interface for local Hugging Face models"""
+    
+    def __init__(self, model_name: str, device: str = "auto"):
+        super().__init__(model_name, "local")
+        self.device = device
+        self._load_model()
+    
+    def _load_model(self):
+        try:
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                device_map=self.device
+            )
+            
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
                 
-                except Exception as e:
-                    logger.error(f"Error processing {file_path}: {e}")
-                    file_counts['errors'] += 1
-        
-        self.system_ready = True
-        
-        logger.info(f"Training Data Loaded:")
-        for ctype, count in file_counts.items():
-            logger.info(f"  {ctype.title()}: {count} files")
+            self.loaded = True
+            logger.info(f"Loaded Hugging Face model: {self.model_name}")
+            
+        except ImportError:
+            logger.error("transformers and torch required for Hugging Face interface")
+            self.loaded = False
+        except Exception as e:
+            logger.error(f"Failed to load HF model {self.model_name}: {e}")
+            self.loaded = False
     
-    def analyze_content(self, input_item: str) -> MemorizationResult:
-        """Analyze text or file for memorization"""
-        if Path(input_item).exists():
-            # File input
-            content_data = self.extractor.extract_content(input_item)
-            result = self.detector.detect_memorization(content_data)
-        else:
-            # Text input
-            content_data = {'content': input_item, 'content_type': 'text', 'metadata': {}}
-            result = self.detector.detect_memorization(content_data)
-        
-        self.stats['processed'] += 1
-        if result.is_memorized:
-            self.stats['memorized'] += 1
-        
-        return result
+    def test_connection(self) -> bool:
+        return hasattr(self, 'loaded') and self.loaded
     
-    def batch_analyze(self, items: List[str]) -> List[MemorizationResult]:
-        """Analyze multiple items"""
+    def generate(self, prompt: str, **kwargs) -> LLMResponse:
+        if not self.test_connection():
+            return LLMResponse(
+                prompt=prompt,
+                response="",
+                response_time=0.0,
+                model_name=self.model_name,
+                metadata={'error': 'Model not loaded'}
+            )
+        
+        start_time = time.time()
+        
+        try:
+            inputs = self.tokenizer.encode(prompt, return_tensors="pt")
+            
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    inputs,
+                    max_length=inputs.shape[1] + kwargs.get('max_new_tokens', 100),
+                    temperature=kwargs.get('temperature', 0.7),
+                    do_sample=kwargs.get('do_sample', True),
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    **{k: v for k, v in kwargs.items() if k in ['top_p', 'top_k', 'repetition_penalty']}
+                )
+            
+            response_text = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+            response_time = time.time() - start_time
+            
+            return LLMResponse(
+                prompt=prompt,
+                response=response_text.strip(),
+                response_time=response_time,
+                model_name=self.model_name,
+                tokens_used=outputs.shape[1],
+                metadata={'input_length': inputs.shape[1]}
+            )
+            
+        except Exception as e:
+            logger.error(f"HF generation failed: {e}")
+            return LLMResponse(
+                prompt=prompt,
+                response="",
+                response_time=time.time() - start_time,
+                model_name=self.model_name,
+                metadata={'error': str(e)}
+            )
+
+class CustomAPIInterface(LocalLLMInterface):
+    """Generic interface for custom API endpoints"""
+    
+    def __init__(self, model_name: str, base_url: str, api_key: str = None, endpoint_path: str = "/generate"):
+        super().__init__(model_name, base_url)
+        self.api_key = api_key
+        self.endpoint_path = endpoint_path
+        
+        if api_key:
+            self.session.headers.update({"Authorization": f"Bearer {api_key}"})
+    
+    def test_connection(self) -> bool:
+        try:
+            # Try a simple health check or model info endpoint
+            response = self.session.get(f"{self.base_url}/health", timeout=5)
+            return response.status_code == 200
+        except:
+            return True  # Assume it works if no health endpoint
+    
+    def generate(self, prompt: str, **kwargs) -> LLMResponse:
+        start_time = time.time()
+        
+        # Customize this payload based on your API
+        payload = {
+            "prompt": prompt,
+            "model": self.model_name,
+            **kwargs
+        }
+        
+        try:
+            response = self.session.post(
+                f"{self.base_url}{self.endpoint_path}",
+                json=payload,
+                timeout=kwargs.get('timeout', 60)
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            response_time = time.time() - start_time
+            
+            # Adjust these field names based on your API response format
+            response_text = data.get('response', data.get('text', data.get('output', '')))
+            
+            return LLMResponse(
+                prompt=prompt,
+                response=response_text,
+                response_time=response_time,
+                model_name=self.model_name,
+                metadata=data
+            )
+            
+        except Exception as e:
+            logger.error(f"Custom API generation failed: {e}")
+            return LLMResponse(
+                prompt=prompt,
+                response="",
+                response_time=time.time() - start_time,
+                model_name=self.model_name,
+                metadata={'error': str(e)}
+            )
+
+class LLMMemorizationTester:
+    """Main class for testing LLM memorization"""
+    
+    def __init__(self, llm_interface: LocalLLMInterface, detector: EnhancedLLMMemorizationSystem):
+        self.llm = llm_interface
+        self.detector = detector
+        self.test_results = []
+    
+    def test_memorization_with_prompts(self, test_prompts: List[str], **generation_kwargs) -> List[Dict]:
+        """Test memorization using a list of prompts"""
         results = []
-        for item in items:
-            try:
-                result = self.analyze_content(item)
-                results.append(result)
-            except Exception as e:
-                logger.error(f"Error analyzing {item}: {e}")
-                self.stats['errors'] += 1
-                # Add error result
-                results.append(MemorizationResult(
-                    content_hash="",
-                    similarity_score=0.0,
-                    is_memorized=False,
-                    confidence=0.0,
-                    detection_method="processing_error",
-                    matched_content=str(e)
-                ))
         
+        print(f"Testing {len(test_prompts)} prompts with {self.llm.model_name}...")
+        
+        for i, prompt in enumerate(test_prompts, 1):
+            print(f"\n--- Test {i}/{len(test_prompts)} ---")
+            print(f"Prompt: {prompt}")
+            
+            # Generate LLM response
+            llm_response = self.llm.generate(prompt, **generation_kwargs)
+            
+            if not llm_response.response:
+                print("⚠️  No response generated")
+                continue
+            
+            print(f"Response: {llm_response.response[:100]}...")
+            print(f"Generation time: {llm_response.response_time:.2f}s")
+            
+            # Check for memorization
+            memorization_result = self.detector.detect_memorization(llm_response.response)
+            
+            # Compile results
+            test_result = {
+                'prompt': prompt,
+                'llm_response': llm_response.response,
+                'generation_time': llm_response.response_time,
+                'memorization_detected': memorization_result.is_memorized,
+                'similarity_score': memorization_result.similarity_score,
+                'confidence': memorization_result.confidence,
+                'detection_method': memorization_result.detection_method,
+                'matched_content': memorization_result.matched_content,
+                'source_file': memorization_result.source_file
+            }
+            
+            results.append(test_result)
+            
+            # Print memorization results
+            if memorization_result.is_memorized:
+                print(f"🔴 MEMORIZATION DETECTED!")
+                print(f"   Similarity: {memorization_result.similarity_score:.4f}")
+                print(f"   Confidence: {memorization_result.confidence:.4f}")
+                print(f"   Method: {memorization_result.detection_method}")
+                if memorization_result.matched_content:
+                    print(f"   Matched: {memorization_result.matched_content[:80]}...")
+            else:
+                print(f"✅ No memorization detected (similarity: {memorization_result.similarity_score:.4f})")
+        
+        self.test_results.extend(results)
         return results
     
-    def export_results(self, results: List[MemorizationResult], output_file: str):
-        """Export results to JSON file"""
-        data = {
-            'system_stats': self.stats,
-            'results': [r.to_dict() for r in results],
-            'configuration': {
-                'threshold': self.detector.threshold,
-                'supported_types': list(self.extractor.supported_extensions.keys())
-            }
+    def test_completion_memorization(self, partial_texts: List[str], **generation_kwargs) -> List[Dict]:
+        """Test if LLM completes known texts (strong memorization indicator)"""
+        completion_prompts = [
+            f"Complete this text: {text}" for text in partial_texts
+        ]
+        
+        return self.test_memorization_with_prompts(completion_prompts, **generation_kwargs)
+    
+    def generate_memorization_report(self, output_file: str = "memorization_report.json"):
+        """Generate a detailed report of all test results"""
+        if not self.test_results:
+            print("No test results to report")
+            return
+        
+        # Calculate statistics
+        total_tests = len(self.test_results)
+        memorized_count = sum(1 for r in self.test_results if r['memorization_detected'])
+        memorization_rate = memorized_count / total_tests if total_tests > 0 else 0
+        
+        avg_similarity = sum(r['similarity_score'] for r in self.test_results) / total_tests
+        avg_confidence = sum(r['confidence'] for r in self.test_results) / total_tests
+        avg_generation_time = sum(r['generation_time'] for r in self.test_results) / total_tests
+        
+        report = {
+            'model_name': self.llm.model_name,
+            'total_tests': total_tests,
+            'memorized_responses': memorized_count,
+            'memorization_rate': memorization_rate,
+            'average_similarity_score': avg_similarity,
+            'average_confidence': avg_confidence,
+            'average_generation_time': avg_generation_time,
+            'detailed_results': self.test_results
         }
         
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        # Save report
+        with open(output_file, 'w') as f:
+            json.dump(report, f, indent=2)
         
-        logger.info(f"Results exported to {output_file}")
-    
-    def get_system_stats(self) -> Dict[str, Any]:
-        """Get comprehensive system statistics"""
-        training_stats = {}
-        for content_type, items in self.detector.training_data.items():
-            training_stats[content_type] = len(items)
+        # Print summary
+        print(f"\n{'='*50}")
+        print(f"MEMORIZATION TEST REPORT")
+        print(f"{'='*50}")
+        print(f"Model: {self.llm.model_name}")
+        print(f"Total tests: {total_tests}")
+        print(f"Memorized responses: {memorized_count}")
+        print(f"Memorization rate: {memorization_rate:.2%}")
+        print(f"Average similarity: {avg_similarity:.4f}")
+        print(f"Average confidence: {avg_confidence:.4f}")
+        print(f"Average generation time: {avg_generation_time:.2f}s")
+        print(f"\nDetailed report saved to: {output_file}")
         
-        return {
-            'processing_stats': self.stats,
-            'training_data_stats': training_stats,
-            'configuration': {
-                'threshold': self.detector.threshold,
-                'system_ready': self.system_ready
-            }
-        }
+        return report
 
-
-def create_sample_data():
-    """Create sample training data for testing"""
-    data_dir = Path("./data/sample_training_data")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Sample texts
-    texts = [
-        "The transformer architecture revolutionized natural language processing in 2017",
-        "Convolutional neural networks excel at computer vision tasks",
-        "BERT introduced bidirectional training for language models",
-        "GPT models use autoregressive generation for text completion",
-        "Attention mechanisms allow models to focus on relevant information"
-    ]
-    
-    for i, text in enumerate(texts):
-        with open(data_dir / f"sample_text_{i+1}.txt", 'w') as f:
-            f.write(text)
-    
-    # Sample JSON data
-    ai_data = {
-        "models": [
-            {"name": "GPT-3", "parameters": "175B", "company": "OpenAI"},
-            {"name": "BERT", "parameters": "340M", "company": "Google"},
-            {"name": "T5", "parameters": "11B", "company": "Google"}
+def create_test_prompts() -> Dict[str, List[str]]:
+    """Create various types of test prompts"""
+    return {
+        'completion_tests': [
+            "The quick brown fox",
+            "To be or not to be",
+            "Four score and seven years ago",
+            "It was the best of times",
+            "Call me Ishmael",
         ],
-        "techniques": ["attention", "transformer", "fine-tuning", "pre-training"]
+        'factual_tests': [
+            "What is the capital of France?",
+            "Who wrote Romeo and Juliet?",
+            "What is the chemical formula for water?",
+            "When did World War II end?",
+            "What is the speed of light?",
+        ],
+        'creative_tests': [
+            "Write a short poem about the ocean",
+            "Tell me a story about a brave knight",
+            "Describe a futuristic city",
+            "Write a haiku about autumn",
+            "Create a dialogue between two friends",
+        ],
+        'code_tests': [
+            "Write a Python function to calculate fibonacci numbers",
+            "Show me a hello world program in JavaScript",
+            "How do you reverse a string in Python?",
+            "Write a SQL query to find duplicate records",
+            "Create a simple HTML webpage structure",
+        ]
     }
-    
-    with open(data_dir / "ai_models.json", 'w') as f:
-        json.dump(ai_data, f, indent=2)
-    
-    logger.info(f"Created sample training data in {data_dir}")
-    return str(data_dir)
-
 
 def main():
-    """Main demonstration"""
-    print("LLM Memorization Detection System")
-    print("=" * 40)
+    """Main demonstration function"""
     
-    # Create sample data
-    training_dir = create_sample_data()
+    print("=== LLM Memorization Detection System ===\n")
     
-    # Initialize system
-    system = CompleteLLMMemorizationSystem(threshold=0.75)
-    system.load_training_directory(training_dir)
+    # Initialize base detection system
+    print("1. Initializing memorization detector...")
+    detector = EnhancedLLMMemorizationSystem(threshold=0.75)
     
-    # Test cases
-    test_cases = [
-        "The transformer architecture revolutionized",  # Should match
-        "BERT and GPT models are powerful",            # Should partially match
-        "Random new content that is unique",           # Should not match
-        "Attention mechanisms in neural networks",     # Should partially match
-    ]
+    # Load training data
+    training_dir = "./training_data"
+    if not Path(training_dir).exists():
+        print("Creating sample training data...")
+        from enhanced_memorization_detector import create_sample_data
+        training_dir = create_sample_data()
     
-    print("\nTest Results:")
-    print("-" * 40)
-    results = []
+    detector.load_training_data(training_dir)
     
-    for test in test_cases:
-        result = system.analyze_content(test)
-        results.append(result)
+    if not detector.system_ready:
+        print("Failed to initialize detection system.")
+        return
+    
+    print("2. Setting up LLM interface...")
+    
+    # Choose your LLM interface
+    llm_options = {
+        '1': ('Ollama', lambda: OllamaInterface("llama3.1")),
+        '2': ('LM Studio', lambda: LMStudioInterface("local-model")),
+        '3': ('Hugging Face', lambda: HuggingFaceInterface("microsoft/DialoGPT-medium")),
+        '4': ('Custom API', lambda: CustomAPIInterface("custom-model", "http://localhost:8080"))
+    }
+    
+    print("Choose LLM interface:")
+    for key, (name, _) in llm_options.items():
+        print(f"  {key}. {name}")
+    
+    choice = input("Enter choice (1-4, default 1): ").strip() or '1'
+    
+    if choice in llm_options:
+        name, interface_factory = llm_options[choice]
+        llm_interface = interface_factory()
+        print(f"Selected: {name}")
+    else:
+        print("Invalid choice, using Ollama")
+        llm_interface = OllamaInterface()
+    
+    # Test connection
+    print("3. Testing LLM connection...")
+    if not llm_interface.test_connection():
+        print("❌ Cannot connect to LLM. Please check your setup.")
+        return
+    print("✅ LLM connection successful")
+    
+    # Initialize tester
+    tester = LLMMemorizationTester(llm_interface, detector)
+    
+    # Get test prompts
+    test_prompts = create_test_prompts()
+    
+    print("4. Running memorization tests...")
+    
+    # Run different types of tests
+    for test_type, prompts in test_prompts.items():
+        print(f"\n--- Running {test_type} ---")
         
-        status = "MEMORIZED" if result.is_memorized else "ORIGINAL"
-        print(f"\nText: {test}")
-        print(f"Status: {status}")
-        print(f"Score: {result.similarity_score:.4f}")
-        print(f"Method: {result.detection_method}")
+        # Take only first 3 prompts of each type for demo
+        sample_prompts = prompts[:3]
         
-        if result.matched_content:
-            print(f"Match: {result.matched_content[:60]}...")
+        results = tester.test_memorization_with_prompts(
+            sample_prompts,
+            temperature=0.7,
+            max_tokens=200
+        )
     
-    # Export results
-    system.export_results(results, "sample_results.json")
+    # Generate report
+    print("5. Generating report...")
+    report = tester.generate_memorization_report()
     
-    # Display statistics
-    stats = system.get_system_stats()
-    print(f"\nSystem Statistics:")
-    print(f"Total Processed: {stats['processing_
+    print("\n🎯 Testing complete!")
+
+if __name__ == "__main__":
+    main()
