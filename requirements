@@ -1,31 +1,75 @@
-# Core dependencies
-numpy>=1.21.0
-pandas>=1.3.0
-scikit-learn>=1.0.0
-scipy>=1.7.0
+# Core dependencies for Multi-Modal Memorization Detection System
+# Required for basic functionality
+Pillow>=10.0.0
+ImageHash>=4.3.1
 
-# File processing
-Pillow>=8.3.0
-PyMuPDF>=1.20.0
-python-docx>=0.8.11
+# Document processing libraries
+PyMuPDF>=1.23.0
+python-docx>=1.0.0
 
-# Web interface (optional)
-streamlit>=1.25.0
-plotly>=5.0.0
-dash>=2.0.0
+# Data processing and analysis
+pandas>=2.0.0
+numpy>=1.24.0
 
-# API server (optional)
-flask>=2.0.0
-flask-cors>=3.0.10
-requests>=2.25.0
+# CSV/Excel handling
+openpyxl>=3.1.0
+xlrd>=2.0.1
 
-# Utilities
-python-dateutil>=2.8.0
-tqdm>=4.60.0
-click>=8.0.0
+# Text processing
+nltk>=3.8.0
+spacy>=3.7.0
 
-# Development and testing (optional - see requirements-dev.txt)
-# pytest>=6.2.0
-# pytest-cov>=2.12.0
-# black>=21.6.0
-# flake8>=3.9.0
+# PDF alternatives
+pypdf2>=3.0.0
+pdfplumber>=0.10.0
+
+# Image processing alternatives
+opencv-python>=4.8.0
+scikit-image>=0.21.0
+
+# OCR capabilities
+pytesseract>=0.3.10
+easyocr>=1.7.0
+
+# Audio/Video processing (if needed)
+moviepy>=1.0.3
+pydub>=0.25.1
+librosa>=0.10.0
+
+# NLP and similarity
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=2.0.0
+
+# Fuzzy matching
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.21.0
+
+# Web scraping (if needed)
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+
+# Cryptography and hashing
+cryptography>=41.0.0
+
+# File format detection
+python-magic>=0.4.27
+filetype>=1.2.0
+
+# Progress bars and utilities
+tqdm>=4.65.0
+
+# Configuration management
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+
+# Database support (if needed)
+sqlalchemy>=2.0.0
+pymongo>=4.5.0
+
+# Testing and development
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.7.0
+flake8>=6.1.0
+mypy>=1.5.0
