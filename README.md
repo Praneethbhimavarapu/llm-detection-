@@ -214,8 +214,8 @@ If you use this system in research or publications, please cite:
 
 ##  Roadmap
 
-- [ ] Add semantic embedding-based similarity (OpenAI / SBERT)
-- [ ] Real-time GPU-accelerated comparison
-- [ ] Streamlit dashboard visualization
-- [ ] Cloud-based monitoring API
-- [ ] Multilingual text comparison support
+-  Add semantic embedding-based similarity (OpenAI / SBERT)
+-  Real-time GPU-accelerated comparison
+-  Streamlit dashboard visualization
+-  Cloud-based monitoring API
+-  Multilingual text comparison support
