@@ -1,25 +1,25 @@
-# 🧠 LLM Memorization Detection System (Enhanced v2)
+#  LLM Memorization Detection System (Enhanced v2)
 
 A **multimodal memorization detection system** that identifies if content (text, images, audio, or documents) has been memorized from LLM training data.  
 This enhanced version supports **text, images, audio, and documents**, with **caching for faster re-runs**, **configurable thresholds**, and **modular integration options**.
 
 ---
 
-## 🚀 Features
+##  Features
 
-✅ **Multi-modal Detection:** Text, Images, Documents (PDF, DOCX), and Audio  
-✅ **Multiple Algorithms:** Jaccard + difflib (text), dHash (images), MFCC Euclidean Distance (audio)  
-✅ **Configurable Thresholds:** Adjustable similarity and distance cutoffs  
-✅ **Fast Caching:** Saves extracted content in `training_cache.json` for instant reloads  
-✅ **Batch & Real-time Detection:** Detect single files or entire directories  
-✅ **Production Ready:** Designed for CLI, Web API, and Streamlit integration  
-✅ **Export Results:** JSON-compatible results for analysis or dashboards  
+**Multi-modal Detection:** Text, Images, Documents (PDF, DOCX), and Audio  
+**Multiple Algorithms:** Jaccard + difflib (text), dHash (images), MFCC Euclidean Distance (audio)  
+**Configurable Thresholds:** Adjustable similarity and distance cutoffs  
+**Fast Caching:** Saves extracted content in `training_cache.json` for instant reloads  \
+**Batch & Real-time Detection:** Detect single files or entire directories  
+**Production Ready:** Designed for CLI, Web API, and Streamlit integration  
+**Export Results:** JSON-compatible results for analysis or dashboards  
 
 ---
 
-## ⚙️ Quick Start
+##  Quick Start
 
-### 🧩 Installation
+###  Installation
 
 ```bash
 # Clone the repository
@@ -38,7 +38,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🧠 Basic Usage
+##  Basic Usage
 
 ```python
 from detector_system import EnhancedLLMMemorizationSystem
@@ -58,7 +58,7 @@ print(f"Similarity Score: {result.similarity_score:.3f}")
 
 ---
 
-## 💻 Command Line Interface (Optional)
+##  Command Line Interface (Optional)
 
 If you integrate CLI functionality:
 
@@ -78,7 +78,7 @@ python cli.py --interactive
 
 ---
 
-## 🌐 Web Interface (Optional Integration)
+##  Web Interface (Optional Integration)
 
 You can integrate this backend into a web UI (e.g., Streamlit or Flask):
 
@@ -88,7 +88,7 @@ streamlit run web_interface.py
 
 ---
 
-## 📂 Repository Structure
+##  Repository Structure
 
 ```
 llm-detection/
@@ -107,7 +107,7 @@ llm-detection/
 
 ---
 
-## 🧩 Supported File Types
+##  Supported File Types
 
 | Category | File Types | Method |
 |-----------|-------------|--------|
@@ -118,7 +118,7 @@ llm-detection/
 
 ---
 
-## ⚡ Cache System
+##  Cache System
 
 - On the first run, all training files are processed and cached in `training_cache.json`.
 - On subsequent runs, only **modified or new files** are reprocessed.
@@ -126,7 +126,7 @@ llm-detection/
 
 ---
 
-## 🧪 Example: Document & Audio Detection
+##  Example: Document & Audio Detection
 
 ### Document Example
 ```python
@@ -156,7 +156,7 @@ print(result.to_dict())
 
 ---
 
-## 🧱 Core Classes
+##  Core Classes
 
 | Class | Description |
 |-------|--------------|
@@ -167,7 +167,7 @@ print(result.to_dict())
 
 ---
 
-## 🧩 Key Methods
+##  Key Methods
 
 | Method | Purpose |
 |--------|----------|
@@ -178,7 +178,7 @@ print(result.to_dict())
 
 ---
 
-## 🧠 Performance
+##  Performance
 
 | Metric | Value |
 |---------|--------|
@@ -190,14 +190,14 @@ print(result.to_dict())
 
 ---
 
-## 🧾 License
+##  License
 
 This project is licensed under the **MIT License**.  
 See the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 📚 Citation
+##  Citation
 
 If you use this system in research or publications, please cite:
 
@@ -212,7 +212,7 @@ If you use this system in research or publications, please cite:
 
 ---
 
-## 🗺️ Roadmap
+##  Roadmap
 
 - [ ] Add semantic embedding-based similarity (OpenAI / SBERT)
 - [ ] Real-time GPU-accelerated comparison
