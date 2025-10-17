@@ -1,4 +1,4 @@
-#  LLM Memorization Detection System (Enhanced v5)
+#  LLM Memorization Detection System (Enhanced v4)
 
 A **multimodal memorization detection system** that identifies if content (text, images, audio, or documents) has been memorized from LLM training data.  
 This enhanced version supports **text, images, audio, and documents**, with **caching for faster re-runs**, **configurable thresholds**, and **modular integration options**.
